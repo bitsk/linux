@@ -15,7 +15,7 @@
 #include "z1/z1.h"
 extern struct aipu_core_operations zhouyi_v1_ops;
 #endif
-#if ((defined BUILD_ZHOUYI_V2) || (defined BUILD_ZHOUYI_COMPATIBLE))
+#if ((defined BUILD_ZHOUYI_V2) || (defined BUILD_ZHOUYI_V3) || (defined BUILD_ZHOUYI_COMPATIBLE))
 #include "z2/z2.h"
 extern struct aipu_core_operations zhouyi_v2_ops;
 #endif
@@ -270,7 +270,8 @@ int init_aipu_core(struct aipu_core *core, int version, int id, void *job_manage
 		return -EINVAL;
 
 	BUG_ON(core->is_init);
-	BUG_ON((version != AIPU_ISA_VERSION_ZHOUYI_V1) && (version != AIPU_ISA_VERSION_ZHOUYI_V2));
+	BUG_ON((version != AIPU_ISA_VERSION_ZHOUYI_V1) &&
+			(version != AIPU_ISA_VERSION_ZHOUYI_V2) && (version != AIPU_ISA_VERSION_ZHOUYI_V3));
 
 	core->version = version;
 	core->id = id;
@@ -286,8 +287,9 @@ int init_aipu_core(struct aipu_core *core, int version, int id, void *job_manage
 		core->ops = &zhouyi_v1_ops;
 	}
 #endif
-#if ((defined BUILD_ZHOUYI_V2) || (defined BUILD_ZHOUYI_COMPATIBLE))
-	if (version == AIPU_ISA_VERSION_ZHOUYI_V2) {
+#if ((defined BUILD_ZHOUYI_V2) || (defined BUILD_ZHOUYI_V3) || (defined BUILD_ZHOUYI_COMPATIBLE))
+	if ((version == AIPU_ISA_VERSION_ZHOUYI_V2) ||
+		(version == AIPU_ISA_VERSION_ZHOUYI_V3)) {
 		core->max_sched_num = ZHOUYI_V2_MAX_SCHED_JOB_NUM;
 		core->ops = &zhouyi_v2_ops;
 	}

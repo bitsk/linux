@@ -49,7 +49,6 @@ struct aipu_core;
  * @power_on:           power on this core
  * @power_off:          power off this core
  * @is_power_on:        is in power-on state or not
- * @init_pmu:           initialize PMU
  * @sysfs_show:         show core external register values
  */
 struct aipu_core_operations {

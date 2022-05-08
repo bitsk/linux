@@ -13,6 +13,7 @@
 #include <linux/fs.h>
 #include <linux/miscdevice.h>
 #include <linux/types.h>
+#include "soc.h"
 #include "aipu_irq.h"
 #include "aipu_io.h"
 #include "aipu_core.h"
@@ -25,7 +26,8 @@
  * @version:     AIPU hardware version
  * @core_cnt:    AIPU core count in system
  * @cores:       core pointer array
- * @core0_dev:   device struct pointer of core 0
+ * @dev:         core #0 device struct pointer of core 0
+ * @soc_ops:     SoC operation pointer
  * @aipu_fops:   file operation struct
  * @misc:        misc driver struct
  * @job_manager: job manager struct
@@ -37,7 +39,8 @@ struct aipu_priv {
 	int version;
 	int core_cnt;
 	struct aipu_core **cores;
-	struct device *core0_dev;
+	struct device *dev;
+	struct aipu_soc_operations   *soc_ops;
 	const struct file_operations *aipu_fops;
 	struct miscdevice            misc;
 	struct aipu_job_manager      job_manager;
@@ -52,12 +55,11 @@ struct aipu_priv {
  * @param aipu:  pointer to AIPU private data struct
  * @param p_dev: platform device struct pointer
  * @param fops: file_operations struct pointer
- * @param version: AIPU ISA version
  *
  * @return 0 if successful; others if failed;
  */
 int init_aipu_priv(struct aipu_priv *aipu, struct platform_device *p_dev,
-	const struct file_operations *fops, int version);
+	const struct file_operations *fops);
 /*
  * @brief add new detected core into aipu_priv struct in probe phase
  *

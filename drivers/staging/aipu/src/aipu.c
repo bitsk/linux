@@ -15,9 +15,7 @@
 #include <linux/sched.h>
 #include <linux/uaccess.h>
 #include <linux/poll.h>
-#ifdef CONFIG_COMPAT
 #include <linux/compat.h>
-#endif
 #include "armchina_aipu.h"
 #include "aipu_mm.h"
 #include "aipu_job_manager.h"
@@ -31,7 +29,6 @@ static struct aipu_priv *aipu;
 static const struct of_device_id aipu_of_match[] = {
 #if ((defined BUILD_ZHOUYI_V1) || (defined BUILD_ZHOUYI_COMPATIBLE))
 	{
-		.compatible = "armchina,zhouyiv1aipu",
 		.compatible = "armchina,zhouyi-v1",
 	},
 #endif
@@ -231,8 +228,6 @@ static int aipu_probe(struct platform_device *p_dev)
 	int id = 0;
 	int ver_ok = 0;
 
-	zhouyi_detect_aipu_version(p_dev, &version, &config);
-
 	/* create & init aipu priv struct shared by all cores */
 	if (!aipu) {
 		aipu = devm_kzalloc(dev, sizeof(*aipu), GFP_KERNEL);
@@ -242,10 +237,12 @@ static int aipu_probe(struct platform_device *p_dev)
 		dev_info(dev, "AIPU KMD probe start...\n");
 		dev_info(dev, "KMD version: %s %s\n", KMD_BUILD_DEBUG_FLAG,
 			KMD_VERSION);
-		ret = init_aipu_priv(aipu, p_dev, &aipu_fops, version);
+		ret = init_aipu_priv(aipu, p_dev, &aipu_fops);
 		if (ret)
 			return ret;
 	}
+
+	zhouyi_detect_aipu_version(p_dev, &version, &config);
 
 	/* detect AIPU version: only z1/z2 is supported */
 	of_property_read_u32(dev->of_node, "core-id", &id);
@@ -256,10 +253,13 @@ static int aipu_probe(struct platform_device *p_dev)
 		dev_info(dev, "AIPU core #%d detected: zhouyi-v1-%04d\n", id, config);
 	}
 #endif
-#if ((defined BUILD_ZHOUYI_V2) || (defined BUILD_ZHOUYI_COMPATIBLE))
+#if ((defined BUILD_ZHOUYI_V2) || (defined BUILD_ZHOUYI_V3) || (defined BUILD_ZHOUYI_COMPATIBLE))
 	if (version == AIPU_ISA_VERSION_ZHOUYI_V2) {
 		ver_ok = 1;
 		dev_info(dev, "AIPU core #%d detected: zhouyi-v2-%04d\n", id, config);
+	} else if (version == AIPU_ISA_VERSION_ZHOUYI_V3) {
+		ver_ok = 1;
+		dev_info(dev, "AIPU core #%d detected: zhouyi-v3-%04d\n", id, config);
 	}
 #endif
 	if (!ver_ok) {
@@ -294,33 +294,21 @@ finish:
 
 static int aipu_suspend(struct platform_device *p_dev, pm_message_t state)
 {
-	struct device *dev = &p_dev->dev;
-	struct aipu_core *core = platform_get_drvdata(p_dev);
-
-	BUG_ON(!core);
-
-	if (!core->ops->is_idle(core)) {
-		dev_err(dev, "aipu in busy status\n");
-		return -EBUSY;
-	}
-
-	core->ops->disable_clk(core);
-	dev_info(dev, "aipu suspend ok\n");
+	if (aipu && aipu->soc_ops)
+		aipu->soc_ops->disable_clk(aipu->dev);
 	return 0;
 }
 
 static int aipu_resume(struct platform_device *p_dev)
 {
-	struct device *dev = &p_dev->dev;
 	struct aipu_core *core = platform_get_drvdata(p_dev);
 
 	BUG_ON(!core);
 
-	if (core->ops->enable_clk(core))
-		dev_err(dev, "aipu resume failed\n");
+	if (aipu && aipu->soc_ops)
+		aipu->soc_ops->enable_clk(aipu->dev);
 
 	core->ops->enable_interrupt(core);
-	dev_info(dev, "aipu resume ok\n");
 	return 0;
 }
 

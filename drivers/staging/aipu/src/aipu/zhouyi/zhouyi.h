@@ -18,14 +18,26 @@
 /**
  * Zhouyi AIPU Common Interrupts
  */
-#define ZHOUYI_IRQ_NONE   0x0
-#define ZHOUYI_IRQ_QEMPTY 0x1
-#define ZHOUYI_IRQ_DONE   0x2
-#define ZHOUYI_IRQ_EXCEP  0x4
+#define ZHOUYI_IRQ_NONE                       0x0
+#define ZHOUYI_IRQ_QEMPTY                     0x1
+#define ZHOUYI_IRQ_DONE                       0x2
+#define ZHOUYI_IRQ_EXCEP                      0x4
 
 #define ZHOUYI_IRQ  (ZHOUYI_IRQ_QEMPTY | ZHOUYI_IRQ_DONE | ZHOUYI_IRQ_EXCEP)
 
-#define ZHOUYI_AIPU_IDLE_STATUS   0x70000
+#define ZHOUYI_AIPU_IDLE_STATUS               0x70000
+
+/*
+ * Revision ID for Z1/Z2/Z3
+ */
+#define ZHOUYI_V1_ISA_VERSION_ID              0x0
+#define ZHOUYI_V2_V3_ISA_VERSION_ID           0x1
+
+/*
+ * Revision ID for Z2/Z3
+ */
+#define ZHOUYI_V2_REVISION_ID                 0x100
+#define ZHOUYI_V3_REVISION_ID                 0x200
 
 /**
  * Zhouyi AIPU Common Host Control Register Map
@@ -124,7 +136,7 @@ int zhouyi_print_reg_info(struct io_region *io, char *buf, const char *name, int
 int zhouyi_sysfs_show(struct io_region *io, char *buf);
 #endif
 /**
- * @brief get ISA version number read from AIPU register to AIPU HW version number
+ * @brief convert ZHOUYI ISA version IDs (from register) into AIPU ISA version number
  *
  * @param io: core IO region pointer
  *

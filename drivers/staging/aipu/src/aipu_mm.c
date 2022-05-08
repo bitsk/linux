@@ -22,6 +22,90 @@
 #include "aipu_priv.h"
 #include "aipu_mm.h"
 
+static u64 aipu_dbg_get_pgt_base(u64 smmu_base, u64 size)
+{
+	void *smmu_va = NULL;
+	u64 ttbr0_low = 0;
+	u64 ttbr0_high = 0;
+
+	smmu_va = ioremap(smmu_base, size);
+	if (!smmu_va) {
+		pr_err("ioremap SMMU MMIO failed\n");
+		return 0;
+	}
+
+	ttbr0_low = readl((void __iomem *)((unsigned long)smmu_va + 0x8020));
+	ttbr0_high = readl((void __iomem *)((unsigned long)smmu_va + 0x8024));
+	pr_info("ttbr0_low = 0x%llx, ttbr0_high = 0x%llx\n", ttbr0_low, ttbr0_high);
+
+	iounmap(smmu_va);
+
+	return (ttbr0_high << 32) + ttbr0_low;
+}
+
+static u64 aipu_dbg_get_page_table_entry(u64 pgt_base, u64 offset)
+{
+	void *pgt_va = NULL;
+	u64 entry = 0;
+
+	if (!pgt_base) {
+		pr_info("ERROR: page table base is 0\n");
+		return 0;
+	}
+
+	pgt_va = phys_to_virt(pgt_base);
+
+	if (virt_to_phys(pgt_va) != pgt_base)
+		return 0;
+	entry = *(u64 *)((unsigned long)pgt_va + offset);
+	return entry & 0xFFFFFFFFFC;
+}
+
+static u64 aipu_dbg_get_level_1_page_table_offset(u64 iova)
+{
+	return ((iova >> 30) & 0x1FF) * 8;
+}
+
+static u64 aipu_dbg_get_level_2_page_table_offset(u64 iova)
+{
+	return ((iova >> 21) & 0x1FF) * 8;
+}
+
+u64 aipu_dbg_pgt_iova_to_pa(u64 smmu_base, u64 smmu_size, u64 iova)
+{
+	u64 pa = 0;
+	u64 level_1_pgt_base = 0;
+	u64 level_2_pgt_base = 0;
+	u64 offset = 0;
+
+	level_1_pgt_base = aipu_dbg_get_pgt_base(smmu_base, smmu_size);
+	if (!level_1_pgt_base) {
+		pr_err("%s: get level 1 page table base failed\n", __func__);
+		return 0;
+	}
+	pr_info("%s: level 1 page table base pa = 0x%llx\n", __func__, level_1_pgt_base);
+
+	offset = aipu_dbg_get_level_1_page_table_offset(iova);
+	pr_info("%s: level 1 page table offset = 0x%llx\n", __func__, offset);
+	level_2_pgt_base = aipu_dbg_get_page_table_entry(level_1_pgt_base, offset);
+	if (!level_2_pgt_base) {
+		pr_err("%s: get level 2 page table base from level 1 page table failed\n", __func__);
+		return 0;
+	}
+	pr_info("%s: level 2 page table base pa = 0x%llx\n", __func__, level_2_pgt_base);
+
+	offset = aipu_dbg_get_level_2_page_table_offset(iova);
+	pr_info("%s: level 2 page table offset = 0x%llx\n", __func__, offset);
+	pa = aipu_dbg_get_page_table_entry(level_2_pgt_base, aipu_dbg_get_level_2_page_table_offset(iova));
+	if (!pa) {
+		pr_err("%s: get pa from level 2 page table base failed\n", __func__);
+		return 0;
+	}
+	pr_info("%s: pa in level 2 page table = 0x%llx\n", __func__, pa);
+
+	return (pa & 0xFFFFE00000) + (iova & 0x1FFFFF);
+}
+
 static struct device *aipu_mm_create_child_sramdev(struct device *dev)
 {
 	struct device *child = NULL;
@@ -66,9 +150,9 @@ static int aipu_mm_init_pages(struct aipu_memory_manager *mm, int id)
 		return -ENOMEM;
 
 #if KERNEL_VERSION(4, 12, 0) < LINUX_VERSION_CODE
-	reg->pages = kvzalloc(reg->count * sizeof(struct aipu_virt_page), GFP_KERNEL);
+	reg->pages = kvzalloc(reg->count * sizeof(struct aipu_virt_page *), GFP_KERNEL);
 #else
-	reg->pages = vzalloc(reg->count * sizeof(struct aipu_virt_page));
+	reg->pages = vzalloc(reg->count * sizeof(struct aipu_virt_page *));
 #endif
 	if (!reg->pages)
 		return -ENOMEM;
@@ -109,7 +193,8 @@ static int aipu_mm_init_mem_region(struct aipu_memory_manager *mm, int id)
 		 * Z1 only accepts 0~3G region;
 		 * Z2 has ASE registers therefore accepts 0~3G for lower 32 bits;
 		 */
-		if (mm->version == AIPU_ISA_VERSION_ZHOUYI_V2)
+		if ((mm->version == AIPU_ISA_VERSION_ZHOUYI_V2) ||
+			(mm->version == AIPU_ISA_VERSION_ZHOUYI_V3))
 			upper &= U32_MAX;
 
 		if (upper > mm->limit) {
@@ -169,6 +254,7 @@ static int aipu_mm_init_mem_region(struct aipu_memory_manager *mm, int id)
 	if (!va) {
 		dev_err(reg->dev, "dma_alloc_attrs failed (bytes: 0x%llx, attrs %ld)\n",
 			reg->bytes, reg->attrs);
+		ret = -EINVAL;
 		goto err;
 	}
 	reg->base_va = va;
@@ -391,9 +477,14 @@ static int aipu_mm_alloc_in_region_no_lock(struct aipu_memory_manager *mm, struc
 		return -ENOMEM;
 
 	bitmap_set(reg->bitmap, bitmap_no, alloc_nr);
-	reg->pages[bitmap_no].contiguous_alloc_len = alloc_nr;
-	reg->pages[bitmap_no].filp = filp;
-	reg->pages[bitmap_no].tid = task_pid_nr(current);
+	if (!reg->pages[bitmap_no]) {
+		reg->pages[bitmap_no] = devm_kzalloc(reg->dev, sizeof(struct aipu_virt_page), GFP_KERNEL);
+		if (!reg->pages[bitmap_no])
+			return -ENOMEM;
+	}
+	reg->pages[bitmap_no]->contiguous_alloc_len = alloc_nr;
+	reg->pages[bitmap_no]->filp = filp;
+	reg->pages[bitmap_no]->tid = task_pid_nr(current);
 
 	/* success */
 	buf_req->desc.pa = reg->base_iova + (bitmap_no << PAGE_SHIFT);
@@ -401,7 +492,7 @@ static int aipu_mm_alloc_in_region_no_lock(struct aipu_memory_manager *mm, struc
 	buf_req->desc.bytes = alloc_nr * PAGE_SIZE;
 
 	dev_dbg(reg->dev, "[MM] allocation done: iova 0x%llx, bytes 0x%llx, align_pages %lu, map_num = %d\n",
-		buf_req->desc.pa, buf_req->desc.bytes, align_order, reg->pages[bitmap_no].map_num);
+		buf_req->desc.pa, buf_req->desc.bytes, align_order, reg->pages[bitmap_no]->map_num);
 
 	return 0;
 }
@@ -462,7 +553,10 @@ static int aipu_mm_free_in_region_no_lock(struct aipu_memory_manager *mm, struct
 	if (bitmap_no >= reg->count)
 		return -EINVAL;
 
-	page = &reg->pages[bitmap_no];
+	page = reg->pages[bitmap_no];
+	if (!page)
+		return -EINVAL;
+
 	alloc_nr = page->contiguous_alloc_len;
 	if ((page->filp != filp) || !alloc_nr)
 		return -EINVAL;
@@ -511,15 +605,17 @@ static void aipu_mm_free_filp_in_region(struct aipu_memory_manager *mm,
 	struct aipu_mem_region *reg, struct file *filp)
 {
 	unsigned long i = 0;
+	unsigned long offset = 0;
 
-	if (!mm || !reg || !filp)
+	if (!mm || !reg || !reg->bitmap || !filp)
 		return;
 
 	mutex_lock(&mm->lock);
-	for (i = 0; i < reg->count; i++) {
-		if (reg->pages[i].filp == filp) {
-			memset(&reg->pages[i], 0, sizeof(struct aipu_virt_page));
-			clear_bit(i, reg->bitmap);
+	while ((i = find_next_bit(reg->bitmap, reg->count, offset)) != reg->count) {
+		offset = i + reg->pages[i]->contiguous_alloc_len;
+		if (reg->pages[i] && (reg->pages[i]->filp == filp)) {
+			bitmap_clear(reg->bitmap, i, reg->pages[i]->contiguous_alloc_len);
+			memset(reg->pages[i], 0, sizeof(struct aipu_virt_page));
 		}
 	}
 	mutex_unlock(&mm->lock);
@@ -544,8 +640,8 @@ static struct aipu_virt_page *aipu_mm_find_page(struct aipu_memory_manager *mm,
 	if (page_no >= reg->count)
 		return NULL;
 
-	page = &reg->pages[page_no];
-	if ((page->map_num) || (page->filp != filp))
+	page = reg->pages[page_no];
+	if (!page || page->map_num || (page->filp != filp))
 		return NULL;
 
 	return page;
@@ -557,6 +653,7 @@ int aipu_mm_mmap_buf(struct aipu_memory_manager *mm, struct vm_area_struct *vma,
 	int ret = 0;
 	u64 offset = 0;
 	int len = 0;
+	size_t mmap_size = 0;
 	unsigned long vm_pgoff = 0;
 	struct aipu_mem_region *reg = NULL;
 	struct aipu_virt_page *first_page = NULL;
@@ -584,8 +681,13 @@ int aipu_mm_mmap_buf(struct aipu_memory_manager *mm, struct vm_area_struct *vma,
 		ret = remap_pfn_range(vma, vma->vm_start, offset >> PAGE_SHIFT,
 			vma->vm_end - vma->vm_start, vma->vm_page_prot);
 	} else {
+		if (reg->type == AIPU_MEM_TYPE_KERNEL) {
+			vma->vm_pgoff = (offset - reg->base_iova) >> PAGE_SHIFT;
+			mmap_size = reg->bytes;
+		} else
+			mmap_size = first_page->contiguous_alloc_len << PAGE_SHIFT;
 		ret = dma_mmap_attrs(reg->dev, vma, (void *)((unsigned long)reg->base_va + offset - reg->base_iova),
-			(dma_addr_t)offset, first_page->contiguous_alloc_len << PAGE_SHIFT, reg->attrs);
+			(dma_addr_t)offset, mmap_size, reg->attrs);
 	}
 
 	vma->vm_pgoff = vm_pgoff;

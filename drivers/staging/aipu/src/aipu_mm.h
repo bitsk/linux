@@ -76,7 +76,7 @@ struct aipu_mem_region {
 	u64 bytes;
 	unsigned long base_pfn;
 	enum aipu_mem_type type;
-	struct aipu_virt_page *pages;
+	struct aipu_virt_page **pages;
 	unsigned long *bitmap;
 	unsigned long count;
 	struct device *dev;

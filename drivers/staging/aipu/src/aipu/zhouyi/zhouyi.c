@@ -106,15 +106,21 @@ int zhouyi_sysfs_show(struct io_region *io, char *buf)
 int zhouyi_get_hw_version_number(struct io_region *io)
 {
 	int isa_version = 0;
+	int revision_id = 0;
 
 	if (!io)
 		return 0;
 
 	isa_version = aipu_read32(io, ZHOUYI_ISA_VERSION_REG_OFFSET);
-	if (isa_version == 0)
+	revision_id = aipu_read32(io, ZHOUYI_REVISION_ID_REG_OFFSET);
+	if (isa_version == ZHOUYI_V1_ISA_VERSION_ID)
 		return AIPU_ISA_VERSION_ZHOUYI_V1;
-	else if (isa_version == 1)
+	else if ((isa_version == ZHOUYI_V2_V3_ISA_VERSION_ID) &&
+			(revision_id == ZHOUYI_V2_REVISION_ID))
 		return AIPU_ISA_VERSION_ZHOUYI_V2;
+	else if ((isa_version == ZHOUYI_V2_V3_ISA_VERSION_ID) &&
+			(revision_id == ZHOUYI_V3_REVISION_ID))
+		return AIPU_ISA_VERSION_ZHOUYI_V3;
 	else
 		return 0;
 }

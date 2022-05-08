@@ -11,9 +11,9 @@
 #include "aipu_priv.h"
 #include "z2.h"
 #include "aipu_io.h"
-#if ((defined BUILD_PLATFORM_JUNO) && (BUILD_PLATFORM_JUNO == 1))
+#if (defined BUILD_PLATFORM_JUNO)
 #include "junor2.h"
-#elif ((defined BUILD_PLATFORM_6CG) && (BUILD_PLATFORM_6CG == 1))
+#elif (defined BUILD_PLATFORM_6CG)
 #include "x6cg.h"
 #endif
 #include "config.h"
@@ -168,7 +168,7 @@ static void zhouyi_v2_print_hw_id_info(struct aipu_core *core)
 
 	dev_info(core->dev, "AIPU Initial Status: 0x%x", aipu_read32(&core->reg[0], ZHOUYI_STAT_REG_OFFSET));
 
-	dev_info(core->dev, "########## AIPU CORE %d: ZHOUYI V2 ##########", core->id);
+	dev_info(core->dev, "########## AIPU CORE %d: ZHOUYI V%d ##########", core->id, core->version);
 	dev_info(core->dev, "# ISA Version Register: 0x%x", aipu_read32(&core->reg[0], ZHOUYI_ISA_VERSION_REG_OFFSET));
 	dev_info(core->dev, "# TPC Feature Register: 0x%x", aipu_read32(&core->reg[0], ZHOUYI_TPC_FEATURE_REG_OFFSET));
 	dev_info(core->dev, "# SPU Feature Register: 0x%x", aipu_read32(&core->reg[0], ZHOUYI_SPU_FEATURE_REG_OFFSET));
@@ -201,9 +201,9 @@ static int zhouyi_v2_upper_half(void *data)
 	struct aipu_core *core = (struct aipu_core *)data;
 
 	if (core->interrupts) {
-#if ((defined BUILD_PLATFORM_JUNO) && (BUILD_PLATFORM_JUNO == 1))
+#if (defined BUILD_PLATFORM_JUNO)
 		if (!JUNOR2_IS_CORE_IRQ(core->interrupts, core->id))
-#elif ((defined BUILD_PLATFORM_6CG) && (BUILD_PLATFORM_6CG == 1))
+#elif (defined BUILD_PLATFORM_6CG)
 		if (!X6CG_IS_CORE_IRQ(core->interrupts, core->id))
 #else
 		if (0)
@@ -211,7 +211,6 @@ static int zhouyi_v2_upper_half(void *data)
 			return IRQ_NONE;
 	}
 
-	zhouyi_v2_disable_interrupt(core);
 	ret = zhouyi_v2_read_status_reg(core);
 	if (ret & ZHOUYI_IRQ_QEMPTY)
 		zhouyi_v2_clear_qempty_interrupt(core);
@@ -230,7 +229,6 @@ static int zhouyi_v2_upper_half(void *data)
 
 	if (ret & ZHOUYI_IRQ_FAULT)
 		zhouyi_v2_clear_fault_interrupt(core);
-	zhouyi_v2_enable_interrupt(core);
 
 	/* success */
 	return IRQ_HANDLED;

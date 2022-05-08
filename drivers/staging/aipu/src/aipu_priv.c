@@ -30,25 +30,33 @@ static void deinit_misc_dev(struct aipu_priv *aipu)
 }
 
 int init_aipu_priv(struct aipu_priv *aipu, struct platform_device *p_dev,
-	const struct file_operations *fops, int version)
+	const struct file_operations *fops)
 {
 	int ret = 0;
+	int version = 0;
+	int config = 0;
 	u64 int_reg[2];
 
 	if ((!aipu) || (!p_dev) || (!fops))
 		return -EINVAL;
 
-	aipu->version = 0;
 	aipu->core_cnt = 0;
 	aipu->cores = NULL;
-	aipu->core0_dev = &p_dev->dev;
+	aipu->dev = &p_dev->dev;
 	aipu->aipu_fops = fops;
 
-	if (!of_property_read_u64_array(aipu->core0_dev->of_node, "interrupts-reg", int_reg, 2)) {
-		if (init_aipu_ioregion(aipu->core0_dev, &aipu->interrupts, int_reg[0], int_reg[1]))
+	/* register soc ops and enable clock fisrt of all */
+	aipu_soc_ops_register(&aipu->soc_ops);
+	aipu->soc_ops->enable_clk(aipu->dev);
+
+	zhouyi_detect_aipu_version(p_dev, &version, &config);
+	dev_dbg(aipu->dev, "AIPU core0 ISA version %d, configuration %d\n", version, config);
+
+	if (!of_property_read_u64_array(aipu->dev->of_node, "interrupts-reg", int_reg, 2)) {
+		if (init_aipu_ioregion(aipu->dev, &aipu->interrupts, int_reg[0], int_reg[1]))
 			return -EINVAL;
 	} else
-		dev_info(aipu->core0_dev, "no interrupts-reg specified\n");
+		dev_info(aipu->dev, "no interrupts-reg specified\n");
 
 	ret = init_misc_dev(aipu);
 	if (ret)
@@ -146,6 +154,7 @@ int deinit_aipu_priv(struct aipu_priv *aipu)
 	aipu_deinit_mm(&aipu->mm);
 	deinit_aipu_job_manager(&aipu->job_manager);
 	deinit_misc_dev(aipu);
+	aipu->soc_ops->disable_clk(aipu->dev);
 	aipu->is_init = 0;
 
 	return 0;
