@@ -1,7 +1,7 @@
 #Copyright (c) 2018-2021 Arm Technology (China) Co., Ltd. All rights reserved.
 MODULE_NAME := aipu
 SRC_DIR := src
-EXTRA_CFLAGS += -DBUILD_PLATFORM_R329=1 -DBUILD_ZHOUYI_V1=1 -I$(srctree)/$(src)/src -I$(srctree)/$(src)/src/aipu \
+EXTRA_CFLAGS += -DBUILD_PLATFORM_R329_MAINLINE=1 -DBUILD_ZHOUYI_V1=1 -I$(srctree)/$(src)/src -I$(srctree)/$(src)/src/aipu \
                    -I$(srctree)/$(src)/src/aipu/zhouyi -I$(srctree)/$(src)/src/aipu/soc -I$(srctree)/$(src)/include/uapi/misc
 
 EXTRA_CFLAGS += -I$(srctree)/$(src)/src/aipu/soc/r329

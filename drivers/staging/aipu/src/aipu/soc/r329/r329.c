@@ -7,9 +7,73 @@
  */
 
 #include <linux/clk.h>
+#include <linux/reset.h>
+#include <linux/irqreturn.h>
+#include <linux/bitops.h>
 #include "soc.h"
 #include "r329.h"
 
+#if (defined BUILD_PLATFORM_R329_MAINLINE)
+static int r329_enable_clk(struct device *dev)
+{
+	struct clk *clk_aipu = NULL;
+	struct clk *clk_bus_aipu = NULL;
+	struct clk *clk_mbus_aipu = NULL;
+	struct reset_control *rst = NULL;
+	int ret;
+
+	BUG_ON(!dev);
+
+	clk_aipu = devm_clk_get(dev, "core");
+	if (IS_ERR(clk_aipu)) {
+		dev_err(dev, "clk_aipu get failed\n");
+		return PTR_ERR(clk_aipu);
+	}
+
+	clk_bus_aipu = devm_clk_get(dev, "bus");
+	if (IS_ERR(clk_bus_aipu)) {
+		dev_err(dev, "clk_bus_aipu get failed\n");
+		return PTR_ERR(clk_bus_aipu);
+	}
+
+	clk_mbus_aipu = devm_clk_get(dev, "mbus");
+	if (IS_ERR(clk_mbus_aipu)) {
+		dev_err(dev, "clk_mbus_aipu get failed\n");
+		return PTR_ERR(clk_mbus_aipu);
+	}
+
+	rst = devm_reset_control_get(dev, NULL);
+	if (IS_ERR(rst)) {
+		dev_err(dev, "reset get failed\n");
+		return PTR_ERR(rst);
+	}
+
+	ret = reset_control_deassert(rst);
+	if (ret) {
+		dev_err(dev, "reset deassert failed\n");
+		return ret;
+	}
+
+	ret = clk_prepare_enable(clk_bus_aipu);
+	if (ret) {
+		dev_err(dev, "clk_bus_aipu enable failed\n");
+		return ret;
+	}
+
+	ret = clk_prepare_enable(clk_mbus_aipu);
+	if (ret) {
+		dev_err(dev, "clk_bus_aipu enable failed\n");
+		return ret;
+	}
+
+	ret = clk_prepare_enable(clk_aipu);
+	if (ret) {
+		dev_err(dev, "clk_aipu enable failed\n");
+		return ret;
+	}
+	return 0;
+}
+#else
 static int r329_enable_clk(struct device *dev)
 {
 	struct clk *clk_pll_aipu = NULL;
@@ -61,7 +125,40 @@ static int r329_enable_clk(struct device *dev)
 	dev_info(dev, "enable r329 AIPU clock done\n");
 	return 0;
 }
+#endif
 
+
+# if (defined BUILD_PLATFORM_R329_MAINLINE)
+static int r329_disable_clk(struct device *dev)
+{
+	struct clk *clk_aipu = NULL;
+	struct clk *clk_bus_aipu = NULL;
+	struct clk *clk_mbus_aipu = NULL;
+	struct reset_control *rst = NULL;
+
+	clk_aipu = devm_clk_get(dev, "core");
+	if (IS_ERR(clk_aipu))
+		return -EBUSY;
+
+	clk_bus_aipu = devm_clk_get(dev, "bus");
+	if (IS_ERR(clk_bus_aipu))
+		return -EBUSY;
+
+	clk_mbus_aipu = devm_clk_get(dev, "mbus");
+	if (IS_ERR(clk_mbus_aipu))
+		return -EBUSY;
+
+	rst = devm_reset_control_get(dev, NULL);
+	if (IS_ERR(rst))
+		return -EBUSY;
+
+	clk_disable_unprepare(clk_aipu);
+	clk_disable_unprepare(clk_mbus_aipu);
+	clk_disable_unprepare(clk_bus_aipu);
+	reset_control_assert(rst);
+	return 0;
+}
+#else
 static int r329_disable_clk(struct device *dev)
 {
 	struct clk *clk_aipu = NULL;
@@ -82,6 +179,7 @@ static int r329_disable_clk(struct device *dev)
 	dev_info(dev, "disable r329 AIPU clock done\n");
 	return 0;
 }
+#endif
 
 static struct aipu_soc_operations r329_ops = {
 	.enable_clk  = r329_enable_clk,
